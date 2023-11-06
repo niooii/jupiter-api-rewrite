@@ -1,11 +1,18 @@
-use fantoccini::{ClientBuilder, Locator, cookies::Cookie};
+use fantoccini::{ClientBuilder, Locator};
 use scraper::Selector;
-use std::{time::Duration, sync::Arc, future, collections::HashMap};
+use std::collections::HashMap;
+use std::{time::Duration, sync::Arc};
 use tokio::{time::sleep};
 use futures::future::join_all;
 
+use log::debug;
+use log::error;
+use log::info;
+use log::warn;
 
-use crate::statics::*;
+
+use crate::{statics::*};
+use crate::stopwatch::Stopwatch;
 
 const JUPITER_LOGIN: &str = "https://login.jupitered.com/login/index.php";
 
@@ -63,8 +70,33 @@ pub async fn login_jupiter(
     osis: &String,
     password: &String,
 ) -> Result<(), Box<dyn std::error::Error>> {
+
+    if osis.is_empty() {
+        error!("Some idiot didn't enter an osis.");
+        return Err(Box::from("Enter your osis number."));
+    }
+    if osis.len() != 9 {
+        error!("Invalid osis length: {}, length {}", osis, osis.len());
+        return Err(Box::from("Enter a valid osis number."))
+    }
+    if password.is_empty() {
+        error!("Some idiot didn't enter a password.");
+        return Err(Box::from("Enter your password."));
+    }
+
+    // I like seeing numbers
+    let log_timer = Stopwatch:: new();
+
+    // Creates chrome capabilities
+    let mut caps = serde_json::map::Map::new();
+    let opts = serde_json::json!({
+        "args": ["--headless"   , "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+    });
+    caps.insert("goog:chromeOptions".to_string(), opts);
+
     // Connect to webdriver instance that is listening on port 4444
     let client = ClientBuilder::native()
+    .capabilities(caps)
         .connect("http://localhost:4444")
         .await?;
 
@@ -121,8 +153,24 @@ pub async fn login_jupiter(
     let mut cache = UserCache {
         .. Default::default()
     };
-    cache.mini = client.wait().for_element(Locator::XPath("//input[contains(@name, 'from')]")).await?.attr("value").await?.unwrap_or(String::new());
-    cache.session = client.find(Locator::XPath("//input[contains(@name, 'session')]")).await?.attr("value").await?.unwrap_or(String::new());
+
+    // This may be useless, but I don't want to remove it.
+    cache.mini = client.wait().for_element(Locator::XPath("//input[contains(@name, 'mini')]")).await?.attr("value").await?.unwrap_or(String::new());
+    
+    // If webdriver cannot find session, the login has failed.
+    let session_element = client.find(Locator::XPath("//input[contains(@name, 'session')]")).await;
+    if let Ok(e) = session_element {
+        cache.session = e.attr("value").await?.unwrap_or(String::new());
+    }
+    else {
+        // Error has occured logging in. Get error string and send it back to the user. 
+        let error_element = client.find(Locator::XPath("//div[contains(@class, 'alert center rad12')]")).await?;
+        let error_str = error_element.text().await?;
+        error!("Could not login: {error_str}");
+        error!("Finished error task in {} seconds.", log_timer.elapsed_seconds());
+        return Err(Box::from("Failed login."));
+    }
+    
     cache.server = client.find(Locator::XPath("//input[contains(@name, 'server')]")).await?.attr("value").await?.unwrap_or(String::new());
     cache.district = client.find(Locator::XPath("//input[contains(@name, 'district')]")).await?.attr("value").await?.unwrap_or(String::new());
     cache.school = client.find(Locator::XPath("//input[contains(@name, 'school')]")).await?.attr("value").await?.unwrap_or(String::new());
@@ -131,7 +179,6 @@ pub async fn login_jupiter(
     cache.contact = client.find(Locator::XPath("//input[contains(@name, 'contact')]")).await?.attr("value").await?.unwrap_or(String::new());
     cache.datemenu = client.find(Locator::XPath("//input[contains(@name, 'datemenu')]")).await?.attr("value").await?.unwrap_or(String::new());
     cache.gterm = client.find(Locator::XPath("//input[contains(@name, 'gterm')]")).await?.attr("value").await?.unwrap_or(String::new());
-
 
     // TODO: FIND ALL THE "CLASS IDS".
     // TODO: click="postval('class1',5640488); go('grades');"
@@ -162,6 +209,8 @@ pub async fn login_jupiter(
         .collect();
 
     client.close().await?;
+
+    info!("Grabbed cookies && session info in {} seconds.", log_timer.elapsed_seconds());
 
     let req_client = build_client(&cache.raw_cookies);
 
@@ -274,8 +323,10 @@ struct Assignment {
 
 
 }
+#[derive(Debug)]
 struct Course {
     name: String,
+    grades: HashMap<String, String>,
     assignments: Vec<Assignment>,
 }
 
@@ -347,7 +398,7 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
     assignment
 }
 
-async fn get_course_data(cache: &UserCache, course_id: &String, client: &reqwest::Client) {
+async fn get_course_data(cache: &UserCache, course_id: &String, client: &reqwest::Client) -> Course {
     
     let html = get_site_html(&course_endpoint(cache, course_id), client).await;
 
@@ -365,33 +416,81 @@ async fn get_course_data(cache: &UserCache, course_id: &String, client: &reqwest
 
     let assignments = join_all(futures).await;
 
-    println!("{:?}", assignments);
-    
+    // println!("{:?}", assignments);
+
     // Get course name
-   //let name = 
 
+    let name = "awf".to_string();
+    
+    let grade_field_map = HashMap::new();
+
+    Course {
+        name,
+        grades: grade_field_map,
+        assignments,
+    }
 }
-
-async fn get_courses(cache: &UserCache, client: &reqwest::Client) {
+use std::sync::Mutex;
+// Takes a mutable reference to JupiterData to modify the elements of courses of within the function.
+// Solves an async issue.
+async fn get_courses(cache: &UserCache, client: &reqwest::Client, jd: &Mutex<JupiterData>) {
     
     let futures: Vec<_> = cache.class_ids
     .iter()
     .map(|course_id| {get_course_data(cache, course_id, client)})
     .collect();
 
-    join_all(futures).await;
+    let courses = join_all(futures).await;
 
+    let mut guard = jd.lock().unwrap();
+    guard.courses = courses;
+}
+
+// this sounds very bad out of context.
+// Also accepts a mut ref to juptierdata.
+async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mutex<JupiterData>) {
+    let todo_endpoint = todo_endpoint(cache);
+    let html = get_site_html(&todo_endpoint, client).await;
+
+    let name = html
+    .select(&Selector::parse("div.toptabnull").unwrap())
+    .next()
+    .unwrap()
+    .inner_html();
+
+    let mut guard = jd.lock().unwrap();
+    guard.name = name.trim().to_string();
 }
 
 pub async fn get_all_data(osis: &String) {
     
-    let guard = CLIENT_CACHE_MAP.lock().await; 
+    let log_timer = Stopwatch::new();
 
-    let (cache, client) = &guard.get(osis).unwrap();
+    let cachemap_guard = CLIENT_CACHE_MAP.lock().await; 
 
-    get_courses(cache, client).await;
+    let (cache, client) = &cachemap_guard.get(osis).unwrap();
+
+    let jd = JupiterData {
+        ..Default::default()
+    };
+
+    let jd = Mutex::new(jd);
+
+    futures::join!(
+        get_courses(cache, client, &jd),
+        get_personal_info(cache, client, &jd),
+    );
+
+    let guard =  jd.lock().unwrap();
+
+    // println!("{:?}", guard);
+
+    info!("Finished fetching data for {} in {} seconds.", guard.name, log_timer.elapsed_seconds());
 }
 
-struct ResponseData {
+#[derive(Default, Debug)]
+struct JupiterData {
+    name: String,
 
+    courses: Vec<Course>,
 }

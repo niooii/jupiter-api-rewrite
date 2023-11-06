@@ -8,21 +8,17 @@ mod stopwatch;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
-    let mut fetch_timer = stopwatch::Stopwatch::new();
+    std::env::set_var("RUST_LOG", "jupiter_api=trace");
+    env_logger::init();
 
     let osis = "".to_string();
-    let password = "".to_string();
+    let password = "wf".to_string();
 
     scraper::login_jupiter(&osis, &password).await?;
 
     // fetch_timer.reset();
 
     scraper::get_all_data(&osis).await;
-
-    println!("Fetch finished in {:?} seconds.", fetch_timer.elapsed_seconds());
-
-    //let response = client.get(JUPITER_LOGIN).send().await.unwrap();
 
     Ok(())
 }
