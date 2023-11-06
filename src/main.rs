@@ -1,9 +1,9 @@
 #![allow(dead_code, unused_variables)]
 
 mod jupiter;
+mod jupiter_endpoints;
 mod scraper;
 mod statics;
-mod jupiter_endpoints;
 mod stopwatch;
 
 #[tokio::main]
@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let osis = "".to_string();
-    let password = "wf".to_string();
+    let password = "".to_string();
 
     scraper::login_jupiter(&osis, &password).await?;
 

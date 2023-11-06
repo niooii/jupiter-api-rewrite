@@ -1,10 +1,10 @@
 use fantoccini::{ClientBuilder, Locator};
 use scraper::Selector;
 use std::collections::HashMap;
-use std::{time::Duration, sync::Arc};
+use std::{time::Duration, sync::{Arc, Mutex}};
 use tokio::{time::sleep};
 use futures::future::join_all;
-
+use serde::{Serialize, Deserialize};
 use log::debug;
 use log::error;
 use log::info;
@@ -32,10 +32,9 @@ pub struct UserCache {
     stud: String,
     contact: String,
     datemenu: String,
-    //class1: String, FIELD IS
     gterm: String,
 
-    class_ids: Vec<String>,
+    class_ids_names: Vec<(String, String)>,
     raw_cookies: Vec<String>,
 }
 
@@ -64,6 +63,7 @@ async fn create_usercache(html: &String) {
 
 }
 
+#[allow(clippy::too_many_lines)]
 /// Modifies an instance of UserCache, can be used to update the request payload.
 /// Uses Chromedriver on port 4444.
 pub async fn login_jupiter(
@@ -154,6 +154,9 @@ pub async fn login_jupiter(
         .. Default::default()
     };
 
+    // Wait for "From" element to be available.\
+    // client.wait().for_element(Locator::XPath("//input[contains(@name, 'from')]")).await?;
+
     // This may be useless, but I don't want to remove it.
     cache.mini = client.wait().for_element(Locator::XPath("//input[contains(@name, 'mini')]")).await?.attr("value").await?.unwrap_or(String::new());
     
@@ -180,24 +183,33 @@ pub async fn login_jupiter(
     cache.datemenu = client.find(Locator::XPath("//input[contains(@name, 'datemenu')]")).await?.attr("value").await?.unwrap_or(String::new());
     cache.gterm = client.find(Locator::XPath("//input[contains(@name, 'gterm')]")).await?.attr("value").await?.unwrap_or(String::new());
 
-    // TODO: FIND ALL THE "CLASS IDS".
-    // TODO: click="postval('class1',5640488); go('grades');"
-    cache.class_ids.clear();
+    // cache.class_ids.clear();
 
-    let class_id_containers = client.find_all(Locator::XPath("//div[@class='navrow' and @click]")).await.expect("could not perform search");
+    // "//div[@class='classnav']/parent::div" <-- CLASS ID XPATH
+    // "//div[@class='classnav']" <-- CLASS NAME XPATH
 
-    for element in class_id_containers {
-        let str_option = element.attr("click").await?;
-        if str_option.is_none() {
-            continue;
-        }
+    // TODO: Make parallel; really grasping at straws here.
+    let class_id_containers = client.find_all(Locator::XPath("//div[@class='classnav']/parent::div")).await.expect("could not perform search");
+    let class_name_containers = client.find_all(Locator::XPath("//div[@class='classnav']")).await.expect("could not perform search");
 
-        let str = str_option.unwrap();
+    let class_ids: Vec<String> = join_all(class_id_containers.iter()
+    .map(|element| async {
+        let str = element.attr("click").await.expect("err").unwrap();
         let begin_idx = str.find("',").unwrap() + 2;
         let end_idx = str.find(')').unwrap();
-        
-        cache.class_ids.push(str[begin_idx..end_idx].to_string());
-    }
+
+        str[begin_idx..end_idx].to_string()
+        })
+    ).await;
+
+    let class_names: Vec<String> = join_all(class_name_containers.iter()
+    .map(|element| async {
+        // Trial and error moment
+        element.html(true).await.expect("err").trim_end_matches('"').to_string()
+        })
+    ).await;
+
+    cache.class_ids_names = std::iter::zip(class_ids, class_names).collect();
 
     // println!("{:?}", cache.class_ids);
     
@@ -311,7 +323,7 @@ async fn get_site_html(endpoint: &str, request_client: &reqwest::Client) -> scra
 
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize)]
 struct Assignment {
     id: String,
     name: String,
@@ -323,7 +335,7 @@ struct Assignment {
 
 
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct Course {
     name: String,
     grades: HashMap<String, String>,
@@ -398,7 +410,8 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
     assignment
 }
 
-async fn get_course_data(cache: &UserCache, course_id: &String, client: &reqwest::Client) -> Course {
+// Takes in course name bc it is easier to get from grabbing the course ids themselves.
+async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &String, client: &reqwest::Client) -> Course {
     
     let html = get_site_html(&course_endpoint(cache, course_id), client).await;
 
@@ -417,27 +430,23 @@ async fn get_course_data(cache: &UserCache, course_id: &String, client: &reqwest
     let assignments = join_all(futures).await;
 
     // println!("{:?}", assignments);
-
-    // Get course name
-
-    let name = "awf".to_string();
     
     let grade_field_map = HashMap::new();
 
     Course {
-        name,
+        name: course_name.clone(),
         grades: grade_field_map,
         assignments,
     }
 }
-use std::sync::Mutex;
+
 // Takes a mutable reference to JupiterData to modify the elements of courses of within the function.
 // Solves an async issue.
 async fn get_courses(cache: &UserCache, client: &reqwest::Client, jd: &Mutex<JupiterData>) {
     
-    let futures: Vec<_> = cache.class_ids
+    let futures: Vec<_> = cache.class_ids_names
     .iter()
-    .map(|course_id| {get_course_data(cache, course_id, client)})
+    .map(|(course_id, course_name)| {get_course_data(cache, course_id, course_name, client)})
     .collect();
 
     let courses = join_all(futures).await;
@@ -471,6 +480,7 @@ pub async fn get_all_data(osis: &String) {
     let (cache, client) = &cachemap_guard.get(osis).unwrap();
 
     let jd = JupiterData {
+        osis: osis.clone(),
         ..Default::default()
     };
 
@@ -488,9 +498,9 @@ pub async fn get_all_data(osis: &String) {
     info!("Finished fetching data for {} in {} seconds.", guard.name, log_timer.elapsed_seconds());
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize)]
 struct JupiterData {
     name: String,
-
+    osis: String,
     courses: Vec<Course>,
 }
