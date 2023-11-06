@@ -1,7 +1,5 @@
 #![allow(dead_code, unused_variables)]
 
-mod jupiter;
-mod jupiter_endpoints;
 mod scraper;
 mod statics;
 mod stopwatch;

@@ -4,7 +4,6 @@ use lazy_static::lazy_static;
 use tokio::sync::Mutex;
 
 use crate::scraper::UserCache;
-use once_cell::sync::Lazy;
 use reqwest::Client;
 
 lazy_static! {
