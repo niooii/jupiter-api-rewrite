@@ -69,7 +69,7 @@ async fn create_usercache(html: &String) {
 pub async fn login_jupiter(
     osis: &String,
     password: &String,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Arc<(String, (UserCache, reqwest::Client))>, Box<dyn std::error::Error>> {
 
     if osis.is_empty() {
         error!("Some idiot didn't enter an osis.");
@@ -226,13 +226,8 @@ pub async fn login_jupiter(
 
     let req_client = build_client(&cache.raw_cookies);
 
-    // Lock mutex, allow inserting to map.
-    let mut guard = CLIENT_CACHE_MAP.lock().await; 
-
-    guard.insert(osis.to_string(), (cache, req_client));
-
     // Mutex unlocks when gjard goes out of scope.
-    Ok(())
+    Ok(Arc::new((osis.to_string(), (cache, req_client))))
 }
 
 // TODO: make a global reqwest client, the "requestor" client.
@@ -325,7 +320,7 @@ async fn get_site_html(endpoint: &str, request_client: &reqwest::Client) -> scra
 
 #[derive(Default, Debug, Serialize)]
 struct Assignment {
-    id: String,
+    // id: String,
     name: String,
     date_due: String,    
     score: String,
@@ -373,7 +368,9 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
 
             // if the inner html isn't empty and it doesn't have a class attr, it is the due date.
             let date_apparently = ie.inner_html();
-            if !date_apparently.is_empty() {
+
+            // Sometimes <img src=\"../media/dot_green.svg\"> was the date....... ._.
+            if !date_apparently.is_empty() && !date_apparently.contains("media") {
                 assignment.date_due = date_apparently; 
             }
             continue;
@@ -381,12 +378,13 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
         
         
         let class_str = class_attr.unwrap();
-        let text = ie.inner_html();
+        let inner_html = ie.inner_html();
+        let text = html_escape::decode_html_entities(&inner_html);
 
         match class_str {
 
             // name
-            "pad12 wrap asswidth" => assignment.name = text,
+            "pad12 wrap asswidth" => assignment.name = text.into_owned(),
 
             // score (in x / y form)
             "pad20 right" => assignment.score = text.replace(' ', ""),
@@ -399,10 +397,10 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
             },
 
             // impact
-            "pad20 padr8 right alandonly" => assignment.impact = text,
+            "pad20 padr8 right alandonly" => assignment.impact = text.into_owned(),
 
             // category
-            "pad20 alandonly" => assignment.category = text,
+            "pad20 alandonly" => assignment.category = text.into_owned(),
             _ => continue,
         }
 
@@ -471,11 +469,17 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
     guard.name = name.trim().to_string();
 }
 
-pub async fn get_all_data(osis: &String) {
+pub async fn get_all_data(osis: &String, password: &String) -> JupiterData {
     
     let log_timer = Stopwatch::new();
 
-    let cachemap_guard = CLIENT_CACHE_MAP.lock().await; 
+    let mut cachemap_guard = CLIENT_CACHE_MAP.lock().await; 
+
+    if !cachemap_guard.contains_key(osis) {
+        let login_result = Arc::into_inner(login_jupiter(osis, password).await.expect("failed to login jupiter."))
+        .unwrap();
+        cachemap_guard.insert(login_result.0, login_result.1);
+    }
 
     let (cache, client) = &cachemap_guard.get(osis).unwrap();
 
@@ -491,15 +495,21 @@ pub async fn get_all_data(osis: &String) {
         get_personal_info(cache, client, &jd),
     );
 
+    drop(cachemap_guard);
+
     let guard =  jd.lock().unwrap();
 
     // println!("{:?}", guard);
 
     info!("Finished fetching data for {} in {} seconds.", guard.name, log_timer.elapsed_seconds());
+
+    drop(guard);
+
+    jd.into_inner().unwrap()
 }
 
 #[derive(Default, Debug, Serialize)]
-struct JupiterData {
+pub struct JupiterData {
     name: String,
     osis: String,
     courses: Vec<Course>,
