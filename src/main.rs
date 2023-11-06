@@ -5,7 +5,7 @@ mod jupiter_endpoints;
 mod scraper;
 mod statics;
 mod stopwatch;
-
+// a
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("RUST_LOG", "jupiter_api=trace");
