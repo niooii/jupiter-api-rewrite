@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables)]
 
 use actix_web::*;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
 mod scraper;
@@ -27,14 +27,23 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-#[get("jupiter")]
-async fn get_jupiter() -> HttpResponse {
-    let osis: String = "".to_string();
-    let pass: String = "".to_string();
+#[derive(Deserialize)]
+struct LoginInfo {
+    osis: String,
+    password: String,
+}
 
+#[get("jupiter")]
+async fn get_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
     // fetch_timer.reset();
 
-    let jd = scraper::get_all_data(&osis, &pass).await;
+    let jd = scraper::get_all_data(&login.osis, &login.password).await;
+
+    if let Err(e) = jd {
+        return HttpResponse::Unauthorized()
+        .content_type(APPLICATION_JSON)
+        .json(e);
+    }
 
     HttpResponse::Ok()
     .content_type(APPLICATION_JSON)

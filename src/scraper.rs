@@ -20,9 +20,6 @@ const CONTENTTYPE_FORM: &str = "application/x-www-form-urlencoded";
 
 #[derive(Debug, Hash, Default, Clone)]
 pub struct UserCache {
-    osis: String,
-    password: String,
-
     mini: String,
     session: String,
     server: String,
@@ -171,7 +168,7 @@ pub async fn login_jupiter(
         let error_str = error_element.text().await?;
         error!("Could not login: {error_str}");
         error!("Finished error task in {} seconds.", log_timer.elapsed_seconds());
-        return Err(Box::from("Failed login."));
+        return Err(Box::from(format!("Could not login: {error_str}")));
     }
     
     cache.server = client.find(Locator::XPath("//input[contains(@name, 'server')]")).await?.attr("value").await?.unwrap_or(String::new());
@@ -469,16 +466,24 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
     guard.name = name.trim().to_string();
 }
 
-pub async fn get_all_data(osis: &String, password: &String) -> JupiterData {
+pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterData, String> {
     
     let log_timer = Stopwatch::new();
 
     let mut cachemap_guard = CLIENT_CACHE_MAP.lock().await; 
 
     if !cachemap_guard.contains_key(osis) {
-        let login_result = Arc::into_inner(login_jupiter(osis, password).await.expect("failed to login jupiter."))
+
+        let login_result = login_jupiter(osis, password).await;
+        let login_result = if let Err(e) = login_result {
+            return Err(e.to_string());
+        } else {
+            login_result.unwrap()
+        };
+
+        let login_finish = Arc::into_inner(login_result)
         .unwrap();
-        cachemap_guard.insert(login_result.0, login_result.1);
+        cachemap_guard.insert(login_finish.0, login_finish.1);
     }
 
     let (cache, client) = &cachemap_guard.get(osis).unwrap();
@@ -505,7 +510,7 @@ pub async fn get_all_data(osis: &String, password: &String) -> JupiterData {
 
     drop(guard);
 
-    jd.into_inner().unwrap()
+    Ok(jd.into_inner().unwrap())
 }
 
 #[derive(Default, Debug, Serialize)]
