@@ -43,7 +43,7 @@ impl UserCache {
     }
 }
 
-
+//
 /// Send keys to textfield with identifier "id=blahblah"
 async fn send_keys(client: &fantoccini::Client, id: &str, string: &str) -> Result<(), fantoccini::error::CmdError>{
     client
