@@ -217,7 +217,8 @@ pub async fn login_jupiter(
         .map(|c| c.to_string())
         .collect();
 
-    client.close().await?;
+    // TODO: PLEASE REMEMBER TO CLOSE THIS;
+    // client.close().await?;
 
     info!("Grabbed cookies && session info in {} seconds.", log_timer.elapsed_seconds());
 
@@ -408,7 +409,10 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
 // Takes in course name bc it is easier to get from grabbing the course ids themselves.
 async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &String, client: &reqwest::Client) -> Course {
     
-    let html = get_site_html(&course_endpoint(cache, course_id), client).await;
+    let course_endpoint = course_endpoint(cache, course_id);
+    let html = get_site_html(&course_endpoint, client).await;
+
+    // info!("Scraping data from course-endpoint {}", course_endpoint);
 
     // Get assignment ids
     let id_selector = Selector::parse("tbody.hi ").expect("failed to parse selector");
@@ -456,6 +460,9 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
     let todo_endpoint = todo_endpoint(cache);
     let html = get_site_html(&todo_endpoint, client).await;
 
+    // info!("Scraping data from todo-endpoint {}", todo_endpoint);
+    // debug!("{:?}", html.html());
+
     let name = html
     .select(&Selector::parse("div.toptabnull").unwrap())
     .next()
@@ -466,33 +473,75 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
     guard.name = name.trim().to_string();
 }
 
+async fn session_expired(cache: &UserCache, client: &reqwest::Client) -> (bool) {
+    let todo_endpoint = todo_endpoint(cache);
+    let html = get_site_html(&todo_endpoint, client).await;
+
+    // This is a funny comment found in a response when the session is invalid!
+    html.html().contains("detect ipad posing as laptop")
+}
+
+use tokio::sync::MutexGuard;
+
+async fn login_and_cache(osis: &String, password: &String) -> Result<(), String> {
+    let login_result = login_jupiter(osis, password).await;
+    let login_result = if let Err(e) = login_result {
+        return Err(e.to_string());
+    } else {
+        login_result.unwrap()
+    };
+
+    let login_finish = Arc::into_inner(login_result)
+    .unwrap();
+
+    let mut cachemap_guard = CLIENT_CACHE_MAP.lock().await; 
+    cachemap_guard.insert(login_finish.0, login_finish.1);
+
+    Ok(())
+}
+
 pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterData, String> {
     
     let log_timer = Stopwatch::new();
 
     let mut cachemap_guard = CLIENT_CACHE_MAP.lock().await; 
 
+    let mut skip_expired_check = false;
+    // If user first time on api
     if !cachemap_guard.contains_key(osis) {
+        
+        // drop bc cachemap is used in login_and_cache function.
+        drop(cachemap_guard);
 
-        let login_result = login_jupiter(osis, password).await;
-        let login_result = if let Err(e) = login_result {
-            return Err(e.to_string());
-        } else {
-            login_result.unwrap()
-        };
+        login_and_cache(osis, password).await?;
 
-        let login_finish = Arc::into_inner(login_result)
-        .unwrap();
-        cachemap_guard.insert(login_finish.0, login_finish.1);
+        cachemap_guard = CLIENT_CACHE_MAP.lock().await; 
+
+        skip_expired_check = true;
     }
 
-    let (cache, client) = &cachemap_guard.get(osis).unwrap();
+    // borrow checker forced me to call clone : (
+    let s = Stopwatch::new();
+    let (cache, client) = &cachemap_guard.get(osis).unwrap().clone();
+    warn!("YUCKY CLONE took {} seconds.", s.elapsed_seconds());
+
+    // If users session has been invalidated
+    if !skip_expired_check && session_expired(cache, client).await {
+
+        drop(cachemap_guard);
+        
+        login_and_cache(osis, password).await?;
+
+        cachemap_guard = CLIENT_CACHE_MAP.lock().await;
+    }
 
     let jd = JupiterData {
         osis: osis.clone(),
         ..Default::default()
     };
 
+    // in the future, i may have to clone this for better concurrency.
+    let (cache, client) = &cachemap_guard.get(osis).unwrap();
     let jd = Mutex::new(jd);
 
     futures::join!(
@@ -515,7 +564,8 @@ pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterDat
 
 #[derive(Default, Debug, Serialize)]
 pub struct JupiterData {
-    name: String,
+    name: 
+    String,
     osis: String,
     courses: Vec<Course>,
 }
