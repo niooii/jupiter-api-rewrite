@@ -37,7 +37,7 @@ struct LoginInfo {
 async fn get_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
     // fetch_timer.reset();
 
-    let jd = scraper::get_all_data(&login.osis, &login.password).await;
+    let jd = scraper::get_all_data(&login.osis, &login.password ).await;
 
     if let Err(e) = jd {
         return HttpResponse::Unauthorized()

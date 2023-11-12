@@ -353,7 +353,7 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
     let s = Selector::parse("td").unwrap();
 
     let info_element = element.select(&s);
-
+    
     let mut assignment = Assignment {
         ..Default::default()
     };
