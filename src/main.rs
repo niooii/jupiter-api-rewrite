@@ -12,8 +12,7 @@ const APPLICATION_JSON: &str = "application/json";
 
 #[actix::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug");
-    std::env::set_var("RUST_LOG", "jupiter_api=trace");
+    std::env::set_var("RUST_LOG", "actix_web=debug,actix_server=debug,jupiter_api=trace");
     env_logger::init();
     
     HttpServer::new(
