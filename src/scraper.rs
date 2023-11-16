@@ -431,7 +431,7 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     // println!("{:?}", assignments);
     
     let grade_field_map = HashMap::new();
-
+    
     Course {
         name: course_name.clone(),
         grades: grade_field_map,
@@ -473,15 +473,13 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
     guard.name = name.trim().to_string();
 }
 
-async fn session_expired(cache: &UserCache, client: &reqwest::Client) -> (bool) {
+async fn session_expired(cache: &UserCache, client: &reqwest::Client) -> bool {
     let todo_endpoint = todo_endpoint(cache);
     let html = get_site_html(&todo_endpoint, client).await;
 
     // This is a funny comment found in a response when the session is invalid!
     html.html().contains("detect ipad posing as laptop")
 }
-
-use tokio::sync::MutexGuard;
 
 async fn login_and_cache(osis: &String, password: &String) -> Result<(), String> {
     let login_result = login_jupiter(osis, password).await;
