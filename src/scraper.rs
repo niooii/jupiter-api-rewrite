@@ -525,7 +525,7 @@ fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
             // horribly. help me.
             "right pad20 " => {
                 gd.fraction_grade = Some(html_escape::decode_html_entities(
-                    &td.inner_html()).into_owned().replace(' ', "")
+                    &td.inner_html()).into_owned()
                 );
             },
             "right " => {
