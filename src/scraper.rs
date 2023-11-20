@@ -1,5 +1,5 @@
 use fantoccini::{ClientBuilder, Locator};
-use scraper::Selector;
+use scraper::{Selector, Element};
 use std::collections::HashMap;
 use std::{time::Duration, sync::{Arc, Mutex}};
 use tokio::{time::sleep};
@@ -335,6 +335,15 @@ struct Course {
     assignments: Vec<Assignment>,
 }
 
+#[derive(Debug, Serialize)]
+struct GradeData {
+    category: String,
+    percent_grade: Option<f32>,
+    fraction_grade: Option<String>,
+    percent_of_grade: Option<f32>,
+}
+
+
 // this function may be a SLIGHT problem for jupiter if my app ever scales up. maybe fix later =)
 // nevermind. this is incredibly useless.
 // async fn get_assignment_data(cache: &UserCache, assignment_id: &String, client: &reqwest::Client) -> Assignment {
@@ -412,26 +421,38 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     let course_endpoint = course_endpoint(cache, course_id);
     let html = get_site_html(&course_endpoint, client).await;
 
-    // info!("Scraping data from course-endpoint {}", course_endpoint);
-
+    
     // Get assignment ids
     let id_selector = Selector::parse("tbody.hi ").expect("failed to parse selector");
-
+    
     let element_iter = html.select(&id_selector);
-
-    // println!("{:?}", assignment_ids);
-
+    
     // Get assignments for this course 
     let futures: Vec<_> = element_iter
-    .map(|element| {parse_assignment_from_element(element)})
+    .map(|element| {
+        parse_assignment_from_element(element)
+    })
     .collect();
 
     let assignments = join_all(futures).await;
 
-    // println!("{:?}", assignments);
+    // Get grade map elements
+    // this is the element adjacent to all the other <tr> elements that contain the info about grades.
+    let term_selector = Selector::parse("tr.baseline.botline.printblue ").expect("failed to parse selector");
     
+    let mut term_section = html.select(&term_selector).next().expect("There is no \"2023-2024\" section ");
+
+    // each is a <tr> element i think
+    while let Some(e) = term_section.next_sibling_element() {
+        println!("{:?}", e.html());
+        // BRUHUH??
+
+        // PROCESS THE DATA HERE. each is a <tr> element again YIPPEE
+        term_section = e;
+    }
+
     let grade_field_map = HashMap::new();
-    
+
     Course {
         name: course_name.clone(),
         grades: grade_field_map,
