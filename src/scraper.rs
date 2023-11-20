@@ -1,5 +1,5 @@
 use fantoccini::{ClientBuilder, Locator};
-use scraper::{Selector, Element};
+use scraper::{Selector, Element, ElementRef, Html};
 use std::collections::HashMap;
 use std::{time::Duration, sync::{Arc, Mutex}};
 use tokio::{time::sleep};
@@ -331,16 +331,16 @@ struct Assignment {
 #[derive(Debug, Serialize)]
 struct Course {
     name: String,
-    grades: HashMap<String, String>,
+    grades: Vec<GradeData>,
     assignments: Vec<Assignment>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 struct GradeData {
     category: String,
     percent_grade: Option<f32>,
     fraction_grade: Option<String>,
-    percent_of_grade: Option<f32>,
+    additional_info: Option<String>,
 }
 
 
@@ -422,7 +422,7 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     let html = get_site_html(&course_endpoint, client).await;
 
     
-    // Get assignment ids
+    // Get assignments
     let id_selector = Selector::parse("tbody.hi ").expect("failed to parse selector");
     
     let element_iter = html.select(&id_selector);
@@ -442,22 +442,103 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     
     let mut term_section = html.select(&term_selector).next().expect("There is no \"2023-2024\" section ");
 
+    let mut grade_data = Vec::<GradeData>::new();
+
+    // first
+    grade_data.push(extract_grade_data(&term_section));
+
     // each is a <tr> element i think
-    while let Some(e) = term_section.next_sibling_element() {
-        println!("{:?}", e.html());
+    while let Some(tr) = term_section.next_sibling_element() {
+        
+        let gd = extract_grade_data(&tr);
+
+        // println!("{:?}", tr.html());
         // BRUHUH??
+        
+        // PROCESS THE DATA HERE. each is a <tr> element again 
+        grade_data.push(gd);
 
-        // PROCESS THE DATA HERE. each is a <tr> element again YIPPEE
-        term_section = e;
+        term_section = tr;
     }
-
-    let grade_field_map = HashMap::new();
 
     Course {
         name: course_name.clone(),
-        grades: grade_field_map,
+        grades: grade_data,
         assignments,
     }
+}
+
+fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
+    let mut gd = GradeData::default();
+
+    let selector = Selector::parse("td").expect("failed to parse selector");
+
+    let td_iter = tr.select(&selector);
+
+    for td in td_iter {
+        if td.attr("class").is_none() {
+            // check if there is a child, if there is then
+            // it is probably the div containing the numeric grade percent.
+
+            let divpad12 = Selector::parse("div.pad12").unwrap();
+
+            if let Some(e) = td.select(&divpad12).next() {
+                gd.percent_grade = if e.inner_html().to_string().is_empty() {
+                    None
+                }
+                else
+                {
+                    Some(e.inner_html().trim_matches('%').parse::<f32>().expect("failed to parse percent grade"))
+                }
+            }
+            continue;
+        }
+
+        match td.attr("class").unwrap() {
+            // this is for category
+            "pad20 wrap" => {
+                gd.category = td.inner_html();
+                println!("SETTING {}", td.inner_html());
+            },
+            "pad20 wrap nobreakword" => {
+                // this gets the term grade category. 
+                // eg: 2023-2024 section.
+                // wrapped inside child <div> and then a child <b>.
+                // lord forgive me.
+                gd.category = td.first_element_child().unwrap().first_element_child().unwrap().inner_html();
+            },
+            // percent of grade.
+            // yes, there is a space in the class value.
+            // NOT EVEN GONNA TRY HERE SINCE TEACHERS LOVE
+            // PUTTING WHATEVER THEY WANT HERE !
+            "pad12 " => {
+                let org_str = td.inner_html();
+                // println!("{}", org_str);
+                gd.additional_info = if org_str.is_empty() {
+                    None
+                } else {
+                    Some(org_str)
+                }
+            },
+            // the following two class values are
+            // sequential, so i can do this. jupiter is designed
+            // horribly. help me.
+            "right pad20 " => {
+                gd.fraction_grade = Some(html_escape::decode_html_entities(
+                    &td.inner_html()).into_owned().replace(' ', "")
+                );
+            },
+            "right " => {
+                gd.fraction_grade = Some(
+                    format!("{}{}", gd.fraction_grade.unwrap_or(String::new()), td.inner_html())
+                        .replace(' ', "")
+                ); 
+            }
+            _ => {}
+        }
+    }
+
+    gd
 }
 
 // Takes a mutable reference to JupiterData to modify the elements of courses of within the function.
