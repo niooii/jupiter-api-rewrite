@@ -2,7 +2,6 @@
 
 use actix_web::*;
 use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
 
 mod scraper;
 mod statics;
@@ -48,19 +47,3 @@ async fn get_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
     .content_type(APPLICATION_JSON)
     .json(jd.unwrap())
 }
-
-
-// #[tokio::main]
-// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
-//     let osis = "".to_string();
-//     let password = "".to_string();
-
-//     scraper::login_jupiter(&osis, &password).await?;
-
-//     // fetch_timer.reset();
-
-//     scraper::get_all_data(&osis).await;
-
-//     Ok(())
-// }
