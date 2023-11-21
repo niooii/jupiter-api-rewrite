@@ -1,4 +1,5 @@
 use fantoccini::{ClientBuilder, Locator};
+use futures::Future;
 use scraper::{Selector, Element, ElementRef, Html};
 use std::collections::HashMap;
 use std::{time::Duration, sync::{Arc, Mutex}};
@@ -253,13 +254,12 @@ pub async fn login_jupiter(
         .collect();
 
     // TODO: PLEASE REMEMBER TO CLOSE THIS;
-    // client.close().await?;
+    client.close().await?;
 
     info!("Grabbed cookies && session info in {} seconds.", log_timer.elapsed_seconds());
 
     let req_client = build_client(&cache.raw_cookies);
 
-    // Mutex unlocks when gjard goes out of scope.
     Ok(Arc::new((osis.to_string(), (cache, req_client))))
 }
 
@@ -420,21 +420,23 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     
     let mut term_section = html.select(&term_selector).next().expect("There is no \"2023-2024\" section ");
 
-    let mut grade_data = Vec::<GradeData>::new();
-
     // first
-    grade_data.push(extract_grade_data(&term_section));
+
+    let mut tr_elements = vec![term_section];
 
     // each is a <tr> element i think
     while let Some(tr) = term_section.next_sibling_element() {
         
-        let gd = extract_grade_data(&tr);
-
-        // PROCESS THE DATA HERE. each is a <tr> element again 
-        grade_data.push(gd);
+        tr_elements.push(tr);
 
         term_section = tr;
     }
+
+    let futures: Vec<_> = tr_elements.iter().map(|tr| {
+        extract_grade_data(tr)
+    }).collect();
+
+    let grade_data = join_all(futures).await;
 
     Course {
         name: course_name.clone(),
@@ -443,7 +445,8 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     }
 }
 
-fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
+// LITERALLY grasping at straws.
+async fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
     let mut gd = GradeData::default();
 
     let selector = Selector::parse("td").expect("failed to parse selector");
@@ -521,7 +524,7 @@ fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
 }
 
 // Takes a mutable reference to JupiterData to modify the elements of courses of within the function.
-// Solves an async issue.
+// Joinable with other futures.
 async fn get_courses(cache: &UserCache, client: &reqwest::Client, jd: &Mutex<JupiterData>) {
     
     let futures: Vec<_> = cache.class_ids_names
@@ -542,7 +545,6 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
     let html = get_site_html(&todo_endpoint, client).await;
 
     // info!("Scraping data from todo-endpoint {}", todo_endpoint);
-    // debug!("{:?}", html.html());
 
     let name = html
     .select(&Selector::parse("div.toptabnull").unwrap())
