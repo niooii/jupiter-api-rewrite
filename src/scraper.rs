@@ -43,6 +43,41 @@ impl UserCache {
     }
 }
 
+#[derive(Default, Debug, Serialize)]
+struct Assignment {
+    // id: String,
+    name: String,
+    date_due: String,    
+    score: String,
+    worth: u16,
+    impact: String,
+    category: String,
+
+
+}
+#[derive(Debug, Serialize)]
+struct Course {
+    name: String,
+    grades: Vec<GradeData>,
+    assignments: Vec<Assignment>,
+}
+
+#[derive(Default, Debug, Serialize)]
+struct GradeData {
+    category: String,
+    percent_grade: Option<f32>,
+    fraction_grade: Option<String>,
+    additional_info: Option<String>,
+}
+
+#[derive(Default, Debug, Serialize)]
+pub struct JupiterData {
+    name: 
+    String,
+    osis: String,
+    courses: Vec<Course>,
+}
+
 //
 /// Send keys to textfield with identifier "id=blahblah"
 async fn send_keys(client: &fantoccini::Client, id: &str, string: &str) -> Result<(), fantoccini::error::CmdError>{
@@ -281,23 +316,6 @@ fn course_endpoint(cache: &UserCache, course_id: &String) -> String {
     )
 }
 
-// The screen that pops up when you click an assignment is so incredibly useless, I'm not even going to include it at all.
-// fn assignment_endpoint(cache: &UserCache, assignment_id: &String) -> String {
-//     format!("https://login.jupitered.com/0/student.php?w={},{},0&from=grades&to=assignment&todo=&mini=0&session={}&server=1&district={}&school={}&year={}&stud={}&contact={}&gterm={}&ass={}&pagecomplete=1&busymsg=Loading"
-//     , cache.school,
-//     cache.stud, 
-//     cache.session,//session
-//     cache.school, //district
-//     cache.school, //school
-//     cache.year,
-//     cache.stud,
-//     cache.contact,
-//     cache.gterm,
-//     assignment_id,
-//     )
-// }
-
-
 async fn get_site_html(endpoint: &str, request_client: &reqwest::Client) -> scraper::Html {    
     
     let res = request_client
@@ -315,46 +333,6 @@ async fn get_site_html(endpoint: &str, request_client: &reqwest::Client) -> scra
     )
 
 }
-
-#[derive(Default, Debug, Serialize)]
-struct Assignment {
-    // id: String,
-    name: String,
-    date_due: String,    
-    score: String,
-    worth: u16,
-    impact: String,
-    category: String,
-
-
-}
-#[derive(Debug, Serialize)]
-struct Course {
-    name: String,
-    grades: Vec<GradeData>,
-    assignments: Vec<Assignment>,
-}
-
-#[derive(Default, Debug, Serialize)]
-struct GradeData {
-    category: String,
-    percent_grade: Option<f32>,
-    fraction_grade: Option<String>,
-    additional_info: Option<String>,
-}
-
-
-// this function may be a SLIGHT problem for jupiter if my app ever scales up. maybe fix later =)
-// nevermind. this is incredibly useless.
-// async fn get_assignment_data(cache: &UserCache, assignment_id: &String, client: &reqwest::Client) -> Assignment {
-//     let html = get_site_html(&assignment_endpoint(cache, assignment_id), client).await;
-
-//     // println!("got assignment data lol");
-
-//     Assignment {
-
-//     }
-// }
 
 // clippy is making me ANGRY.
 // This takes the <tbody> element with class "hi ..." (this contains all info about assignments)
@@ -452,9 +430,6 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
         
         let gd = extract_grade_data(&tr);
 
-        // println!("{:?}", tr.html());
-        // BRUHUH??
-        
         // PROCESS THE DATA HERE. each is a <tr> element again 
         grade_data.push(gd);
 
@@ -498,7 +473,6 @@ fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
             // this is for category
             "pad20 wrap" => {
                 gd.category = td.inner_html();
-                println!("SETTING {}", td.inner_html());
             },
             "pad20 wrap nobreakword" => {
                 // this gets the term grade category. 
@@ -529,9 +503,14 @@ fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
                 );
             },
             "right " => {
+                if td.inner_html().is_empty() {
+                    gd.fraction_grade = None;
+                    continue;
+                }
+                let mut str = format!("{}{}", gd.fraction_grade.unwrap(), td.inner_html());
+                str.retain(|c| !c.is_whitespace());
                 gd.fraction_grade = Some(
-                    format!("{}{}", gd.fraction_grade.unwrap_or(String::new()), td.inner_html())
-                        .replace(' ', "")
+                    str
                 ); 
             }
             _ => {}
@@ -653,8 +632,6 @@ pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterDat
 
     let guard =  jd.lock().unwrap();
 
-    // println!("{:?}", guard);
-
     info!("Finished fetching data for {} in {} seconds.", guard.name, log_timer.elapsed_seconds());
 
     drop(guard);
@@ -662,10 +639,3 @@ pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterDat
     Ok(jd.into_inner().unwrap())
 }
 
-#[derive(Default, Debug, Serialize)]
-pub struct JupiterData {
-    name: 
-    String,
-    osis: String,
-    courses: Vec<Course>,
-}

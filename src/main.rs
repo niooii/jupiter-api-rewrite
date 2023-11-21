@@ -46,7 +46,7 @@ async fn get_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
 
     HttpResponse::Ok()
     .content_type(APPLICATION_JSON)
-    .json(jd)
+    .json(jd.unwrap())
 }
 
 
