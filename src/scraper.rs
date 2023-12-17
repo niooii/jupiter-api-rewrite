@@ -408,7 +408,6 @@ async fn parse_assignment_from_element(node: Node<'_>) -> Assignment {
 
     }
 
-    println!("{assignment:?}");
     assignment
 }
 
@@ -436,18 +435,17 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     // Get grade map elements
     // this is the element adjacent to all the other <tr> elements that contain the info about grades.
     
-    let mut term_section = html.find(And(Name("tr"), Class("baseline botline printblue"))).nth(0).expect("could not find term section.");
-
+    let mut term_section = html.find(And(Name("tr"), Class("baseline"))).nth(0).expect("could not find term section.");
+ 
     // first
 
     let mut tr_elements = vec![term_section];
 
     // each is a <tr> element i think
-    while let Some(tr) = term_section.next() {
+    for tr in term_section.parent().unwrap().children(){
         
         tr_elements.push(tr);
 
-        term_section = tr;
     }
 
     let futures: Vec<_> = tr_elements.iter().map(|tr| {
@@ -486,10 +484,13 @@ async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
             continue;
         }
 
+        // println!("CLASS: {:?}, {:?}", td.attr("class"), td.inner_html());
+
         match td.attr("class").unwrap() {
             // this is for category
             "pad20 wrap" => {
                 gd.category = td.inner_html();
+                println!("{:?}", gd.category = td.inner_html());
             },
             "pad20 wrap nobreakword" => {
                 // this gets the term grade category. 
@@ -497,6 +498,7 @@ async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
                 // wrapped inside child <div> and then a child <b>.
                 // lord forgive me.
                 gd.category = td.first_child().unwrap().first_child().unwrap().inner_html();
+                println!("{:?}", gd.category = td.inner_html());
             },
             // percent of grade.
             // yes, there is a space in the class value.
