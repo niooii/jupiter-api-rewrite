@@ -1,6 +1,6 @@
 use fantoccini::{ClientBuilder, Locator};
 use futures::Future;
-use scraper::{Selector, Element, ElementRef, Html};
+use select::node::Node;
 use std::collections::HashMap;
 use std::{time::Duration, sync::{Arc, Mutex}};
 use tokio::{time::sleep};
@@ -11,6 +11,8 @@ use log::error;
 use log::info;
 use log::warn;
 
+use select::document::Document;
+use select::predicate::{Attr, Class, Name, Predicate, And};
 
 use crate::{statics::*};
 use crate::stopwatch::Stopwatch;
@@ -316,7 +318,7 @@ fn course_endpoint(cache: &UserCache, course_id: &String) -> String {
     )
 }
 
-async fn get_site_html(endpoint: &str, request_client: &reqwest::Client) -> scraper::Html {    
+async fn get_site_html(endpoint: &str, request_client: &reqwest::Client) -> Document {    
     
     let res = request_client
         .get(endpoint)
@@ -328,24 +330,39 @@ async fn get_site_html(endpoint: &str, request_client: &reqwest::Client) -> scra
     .await
     .expect("failed to get text from html document.");
 
-    scraper::Html::parse_document(
-        &html_string
-    )
+    Document::from(html_string.as_str())
 
+}
+
+// returns in String format
+async fn get_site_html_raw(endpoint: &str, request_client: &reqwest::Client) -> String {    
+    
+    let res = request_client
+        .get(endpoint)
+        .send()
+        .await
+        .expect("failed to get html response.");
+    
+    let html_string = res.text()
+    .await
+    .expect("failed to get text from html document.");
+
+    html_string
 }
 
 // clippy is making me ANGRY.
 // This takes the <tbody> element with class "hi ..." (this contains all info about assignments)
-async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assignment {
-    let s = Selector::parse("td").unwrap();
+async fn parse_assignment_from_element(node: Node<'_>) -> Assignment {
 
-    let info_element = element.select(&s);
+    let td_nodes = node.find(Name("td"));
+    // let td_nodesT = node.find(Name("td"));
     
     let mut assignment = Assignment {
         ..Default::default()
     };
 
-    for ie in info_element {
+
+    for ie in td_nodes {
         
         let class_attr = ie.attr("class");
 
@@ -390,6 +407,8 @@ async fn parse_assignment_from_element(element: scraper::ElementRef<'_>) -> Assi
         }
 
     }
+
+    println!("{assignment:?}");
     assignment
 }
 
@@ -400,13 +419,13 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     let html = get_site_html(&course_endpoint, client).await;
 
     
-    // Get assignments
-    let id_selector = Selector::parse("tbody.hi ").expect("failed to parse selector");
+    // // Get assignments
     
-    let element_iter = html.select(&id_selector);
+    let nodes_iter = html
+        .find(And(Name("tbody"), Class("hi")));
     
     // Get assignments for this course 
-    let futures: Vec<_> = element_iter
+    let futures: Vec<_> = nodes_iter
     .map(|element| {
         parse_assignment_from_element(element)
     })
@@ -416,16 +435,15 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
 
     // Get grade map elements
     // this is the element adjacent to all the other <tr> elements that contain the info about grades.
-    let term_selector = Selector::parse("tr.baseline.botline.printblue ").expect("failed to parse selector");
     
-    let mut term_section = html.select(&term_selector).next().expect("There is no \"2023-2024\" section ");
+    let mut term_section = html.find(And(Name("tr"), Class("baseline botline printblue"))).nth(0).expect("could not find term section.");
 
     // first
 
     let mut tr_elements = vec![term_section];
 
     // each is a <tr> element i think
-    while let Some(tr) = term_section.next_sibling_element() {
+    while let Some(tr) = term_section.next() {
         
         tr_elements.push(tr);
 
@@ -446,21 +464,17 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
 }
 
 // LITERALLY grasping at straws.
-async fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
+async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
     let mut gd = GradeData::default();
 
-    let selector = Selector::parse("td").expect("failed to parse selector");
-
-    let td_iter = tr.select(&selector);
+    let td_iter = tr.find(Name("td"));
 
     for td in td_iter {
         if td.attr("class").is_none() {
             // check if there is a child, if there is then
             // it is probably the div containing the numeric grade percent.
 
-            let divpad12 = Selector::parse("div.pad12").unwrap();
-
-            if let Some(e) = td.select(&divpad12).next() {
+            if let Some(e) = td.find(And(Name("div"), Class("pad12"))).next() {
                 gd.percent_grade = if e.inner_html().to_string().is_empty() {
                     None
                 }
@@ -482,7 +496,7 @@ async fn extract_grade_data(tr: &scraper::ElementRef<'_>) -> GradeData {
                 // eg: 2023-2024 section.
                 // wrapped inside child <div> and then a child <b>.
                 // lord forgive me.
-                gd.category = td.first_element_child().unwrap().first_element_child().unwrap().inner_html();
+                gd.category = td.first_child().unwrap().first_child().unwrap().inner_html();
             },
             // percent of grade.
             // yes, there is a space in the class value.
@@ -547,7 +561,7 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
     // info!("Scraping data from todo-endpoint {}", todo_endpoint);
 
     let name = html
-    .select(&Selector::parse("div.toptabnull").unwrap())
+    .find(And(Name("div"), Class("toptabnull")))
     .next()
     .unwrap()
     .inner_html();
@@ -558,10 +572,10 @@ async fn get_personal_info(cache: &UserCache, client: &reqwest::Client, jd: &Mut
 
 async fn session_expired(cache: &UserCache, client: &reqwest::Client) -> bool {
     let todo_endpoint = todo_endpoint(cache);
-    let html = get_site_html(&todo_endpoint, client).await;
+    let html_string = get_site_html_raw(&todo_endpoint, client).await;
 
     // This is a funny comment found in a response when the session is invalid!
-    html.html().contains("detect ipad posing as laptop")
+    html_string.contains("detect ipad posing as laptop")
 }
 
 async fn login_and_cache(osis: &String, password: &String) -> Result<(), String> {
@@ -602,9 +616,10 @@ pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterDat
     }
 
     // borrow checker forced me to call clone : (
+    // oh well, not like im writing code in the 1980s
     let s = Stopwatch::new();
     let (cache, client) = &cachemap_guard.get(osis).unwrap().clone();
-    warn!("YUCKY CLONE took {} seconds.", s.elapsed_seconds());
+    // warn!("YUCKY CLONE took {} seconds.", s.elapsed_seconds());
 
     // If users session has been invalidated
     if !skip_expired_check && session_expired(cache, client).await {
