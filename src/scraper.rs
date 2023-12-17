@@ -437,13 +437,16 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     
     let mut term_section = html.find(And(Name("tr"), Class("baseline"))).nth(0).expect("could not find term section.");
  
-    // first
-
-    let mut tr_elements = vec![term_section];
+    let mut tr_elements = Vec::<Node<'_>>::new();
 
     // each is a <tr> element i think
-    for tr in term_section.parent().unwrap().children(){
-        
+    for tr in term_section.parent().unwrap().children() {
+
+        if tr.name().is_none() {
+            // println!("CONDITION FAILED");
+            // println!("name is {}", tr.name().unwrap());
+            continue;
+        }
         tr_elements.push(tr);
 
     }
@@ -490,7 +493,7 @@ async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
             // this is for category
             "pad20 wrap" => {
                 gd.category = td.inner_html();
-                println!("{:?}", gd.category = td.inner_html());
+                // println!("inner html {:?}", td.inner_html());
             },
             "pad20 wrap nobreakword" => {
                 // this gets the term grade category. 
@@ -498,7 +501,7 @@ async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
                 // wrapped inside child <div> and then a child <b>.
                 // lord forgive me.
                 gd.category = td.first_child().unwrap().first_child().unwrap().inner_html();
-                println!("{:?}", gd.category = td.inner_html());
+                // println!("inner html {:?}", td.first_child().unwrap().first_child().unwrap().inner_html());
             },
             // percent of grade.
             // yes, there is a space in the class value.
@@ -536,6 +539,7 @@ async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
         }
     }
 
+    // println!("AFTERWARDS: {:?}", gd.category);
     gd
 }
 
