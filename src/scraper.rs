@@ -389,7 +389,23 @@ async fn parse_assignment_from_element(node: Node<'_>) -> Assignment {
             "pad12 wrap asswidth" => assignment.name = text.into_owned(),
 
             // score (in x / y form)
-            "pad20 right" => assignment.score = text.replace(' ', ""),
+            "pad20 right" => assignment.score = {
+                // that means it is wrapped in an
+                // <i><b class> blah blah </b></i>
+                if text.starts_with("<i>") {
+                    let text = text.into_owned();
+                    let doc = Document::from(text.as_str());
+
+                    println!("{:#?}", doc);
+                    println!("{:#?}", text);
+
+                    doc.find(Class("red")).nth(0).unwrap().inner_html()
+                }
+                else {
+                    text.replace(' ', "")
+                }
+
+            },
 
             // worth
             "right landonly" => {
@@ -486,8 +502,6 @@ async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
             }
             continue;
         }
-
-        // println!("CLASS: {:?}, {:?}", td.attr("class"), td.inner_html());
 
         match td.attr("class").unwrap() {
             // this is for category
