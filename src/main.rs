@@ -19,7 +19,7 @@ async fn main() -> std::io::Result<()> {
         || {
             App::new()
                 .wrap(middleware::Logger::default())
-                .ser
+                .service(login_jupiter)
                 .service(get_jupiter)
         }
     ).bind("0.0.0.0:9090")?
