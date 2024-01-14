@@ -52,7 +52,7 @@ async fn get_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
 #[get("login_jupiter")]
 async fn login_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
 
-    let jd = scraper::get_all_data(&login.osis, &login.password).await;
+    let jd = scraper::login_and_cache(&login.osis, &login.password).await;
 
     if let Err(e) = jd {
         return HttpResponse::Unauthorized()
