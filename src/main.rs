@@ -22,7 +22,7 @@ async fn main() -> std::io::Result<()> {
                 .service(login_jupiter)
                 .service(get_jupiter)
         }
-    ).bind("0.0.0.0:9090")?
+    ).bind("127.0.0.1:9090")?
     .run()
     .await
 }

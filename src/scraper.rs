@@ -61,6 +61,10 @@ struct Assignment {
 #[derive(Debug, Serialize)]
 struct Course {
     name: String,
+    num_missing: u16,
+    num_graded: u16,
+    num_ungraded: u16,
+    num_total: u16,
     grades: Vec<GradeData>,
     assignments: Vec<Assignment>,
 }
@@ -446,7 +450,7 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     // Get grade map elements
     // this is the element adjacent to all the other <tr> elements that contain the info about grades.
     
-    let mut term_section = html.find(And(Name("tr"), Class("baseline"))).nth(0).expect("could not find term section.");
+    let term_section = html.find(And(Name("tr"), Class("baseline"))).nth(0).expect("could not find term section.");
  
     let mut tr_elements = Vec::<Node<'_>>::new();
 
@@ -468,10 +472,50 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
 
     let grade_data = join_all(futures).await;
 
+    let mut num_missing = 0;
+    let mut num_graded = 0;
+    let mut num_ungraded = 0;
+    let mut num_total = 0;
+
+    // GET TOTAL ASSIGNMENTS
+    num_total = assignments.len() as u16;
+
+    // PARSE GRADED ASSINGMENTS
+    num_graded = assignments.iter().filter(|a| {
+        // if assingment starts with "/" like "/3", it is ungraded
+        // if it is like "3/3", its graded. HOLY shit.
+        // also if it starts with a number, bc it may be missing
+        let first_char = &a.score.chars().next().unwrap();
+        !a.score.starts_with('/') && first_char.to_digit(10).is_some()
+    }).count() as u16;
+
+    num_ungraded = assignments.iter().filter(|a| {
+        // same concept
+        a.score.starts_with('/')
+    }).count() as u16;
+
+    // PARSE MISSING
+    let alert_rad12 = html.find(And(Class("alert"), Class("rad12"))).next();
+
+    if let Some(n) = alert_rad12 {
+        let red_node = n.find(Class("red")).next().unwrap();
+        let inner_str = red_node.text();
+        let num_str = &inner_str[0..inner_str.find(' ').unwrap()];
+        num_missing = if num_str == "One" {
+            1
+        } else {
+            u16::from_str_radix(num_str, 10).unwrap()
+        }
+    }
+
     Course {
         name: course_name.clone(),
         grades: grade_data,
         assignments,
+        num_missing,
+        num_graded,
+        num_ungraded,
+        num_total
     }
 }
 
