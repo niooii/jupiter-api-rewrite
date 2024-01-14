@@ -246,8 +246,6 @@ pub async fn login_jupiter(
 
     cache.class_ids_names = std::iter::zip(class_ids, class_names).collect();
 
-    // println!("{:?}", cache.class_ids);
-    
     cache.raw_cookies = client
         .get_all_cookies()
         .await?
@@ -598,7 +596,7 @@ async fn session_expired(cache: &UserCache, client: &reqwest::Client) -> bool {
     html_string.contains("detect ipad posing as laptop")
 }
 
-async fn login_and_cache(osis: &String, password: &String) -> Result<(), String> {
+pub async fn login_and_cache(osis: &String, password: &String) -> Result<(), String> {
     let login_result = login_jupiter(osis, password).await;
     let login_result = if let Err(e) = login_result {
         return Err(e.to_string());
@@ -614,6 +612,11 @@ async fn login_and_cache(osis: &String, password: &String) -> Result<(), String>
 
     Ok(())
 }
+
+// pub async fn validate_login(osis: &String, password: &String) -> Result<String, String> {
+
+//     Ok("".to_string())
+// }
 
 pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterData, String> {
     

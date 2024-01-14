@@ -2,6 +2,7 @@
 
 use actix_web::*;
 use serde::{Serialize, Deserialize};
+use serde_json::json;
 
 mod scraper;
 mod statics;
@@ -18,9 +19,10 @@ async fn main() -> std::io::Result<()> {
         || {
             App::new()
                 .wrap(middleware::Logger::default())
+                .ser
                 .service(get_jupiter)
         }
-    ).bind("127.0.0.1:9090")?
+    ).bind("0.0.0.0:9090")?
     .run()
     .await
 }
@@ -33,9 +35,8 @@ struct LoginInfo {
 
 #[get("jupiter")]
 async fn get_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
-    // fetch_timer.reset();
 
-    let jd = scraper::get_all_data(&login.osis, &login.password ).await;
+    let jd = scraper::get_all_data(&login.osis, &login.password).await;
 
     if let Err(e) = jd {
         return HttpResponse::Unauthorized()
@@ -46,4 +47,33 @@ async fn get_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
     HttpResponse::Ok()
     .content_type(APPLICATION_JSON)
     .json(jd.unwrap())
+}
+
+#[get("login_jupiter")]
+async fn login_jupiter(login: web::Query<LoginInfo>) -> HttpResponse {
+
+    let jd = scraper::get_all_data(&login.osis, &login.password).await;
+
+    if let Err(e) = jd {
+        return HttpResponse::Unauthorized()
+        .content_type(APPLICATION_JSON)
+        .json(
+            json!(
+                {
+                "success": false,
+                "why": e
+                }
+            )
+        );
+    }
+
+    HttpResponse::Ok()
+    .content_type(APPLICATION_JSON)
+    .json(
+        json!(
+            {
+            "success": true
+            }
+        )
+    )
 }
