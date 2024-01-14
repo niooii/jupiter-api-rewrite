@@ -61,6 +61,8 @@ struct Assignment {
 #[derive(Debug, Serialize)]
 struct Course {
     name: String,
+    teacher_name: String,
+    place_and_time: String,
     num_missing: u16,
     num_graded: u16,
     num_ungraded: u16,
@@ -472,6 +474,7 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
 
     let grade_data = join_all(futures).await;
 
+    // get course statistics, i guess
     let mut num_missing = 0;
     let mut num_graded = 0;
     let mut num_ungraded = 0;
@@ -497,6 +500,7 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     // PARSE MISSING
     let alert_rad12 = html.find(And(Class("alert"), Class("rad12"))).next();
 
+    
     if let Some(n) = alert_rad12 {
         let red_node = n.find(Class("red")).next().unwrap();
         let inner_str = red_node.text();
@@ -508,8 +512,45 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
         }
     }
 
+    // Get teacher name, and then the location & time info.
+    /* 
+        <td style="padding:8px 20px 12px 20px" class="wide">
+            <div class="big">Game Programming</div>
+            Wendy Qiu
+            <br>
+            Period 4, rm. 6		
+        </td>
+    */
+    let mut teacher_name = String::new();
+    let mut place_and_time = String::new();
+    let mut got_teacher = false;
+
+    // coursename is gotten somewhere else. 
+    // use as fallback
+    // let mut course_name = String::new();
+    for td in html.find(And(Name("td"), Class("wide"))) {
+        if let Some(node) = td.find(Class("big")).next() {
+            // course_name = node.text();
+            for a in td.children() {
+                if a.text().len() == 0 || a.text() == "\n" || &a.text() == course_name {
+                    continue;
+                }
+
+                if !got_teacher {
+                    teacher_name = a.text().trim().to_string();
+                    got_teacher = true;
+                } else {
+                    place_and_time = a.text().trim().to_string();
+                }
+
+            }
+        } 
+    }
+    
     Course {
         name: course_name.clone(),
+        teacher_name,
+        place_and_time,
         grades: grade_data,
         assignments,
         num_missing,
