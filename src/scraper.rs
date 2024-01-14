@@ -394,9 +394,6 @@ async fn parse_assignment_from_element(node: Node<'_>) -> Assignment {
                     let text = text.into_owned();
                     let doc = Document::from(text.as_str());
 
-                    println!("{:#?}", doc);
-                    println!("{:#?}", text);
-
                     doc.find(Class("red")).nth(0).unwrap().inner_html()
                 }
                 else {
@@ -505,14 +502,14 @@ async fn extract_grade_data(tr: &Node<'_>) -> GradeData {
             // this is for category
             "pad20 wrap" => {
                 gd.category = td.inner_html();
-                // println!("inner html {:?}", td.inner_html());
             },
             "pad20 wrap nobreakword" => {
                 // this gets the term grade category. 
                 // eg: 2023-2024 section.
                 // wrapped inside child <div> and then a child <b>.
                 // lord forgive me.
-                gd.category = td.first_child().unwrap().first_child().unwrap().inner_html();
+                // gd.category = td.first_child().unwrap().first_child().unwrap().inner_html();
+                gd.category = String::from("Course Average");
                 // println!("inner html {:?}", td.first_child().unwrap().first_child().unwrap().inner_html());
             },
             // percent of grade.
