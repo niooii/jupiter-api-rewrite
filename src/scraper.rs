@@ -21,6 +21,19 @@ const JUPITER_LOGIN: &str = "https://login.jupitered.com/login/index.php";
 
 const CONTENTTYPE_FORM: &str = "application/x-www-form-urlencoded";
 
+#[derive(Debug, Serialize)]
+enum AssignmentStatus {
+    GRADED,
+    UNGRADED,
+    MISSING
+}
+
+impl Default for AssignmentStatus {
+    fn default() -> Self {
+        Self::UNGRADED
+    }
+}
+
 #[derive(Debug, Hash, Default, Clone)]
 pub struct UserCache {
     mini: String,
@@ -48,15 +61,13 @@ impl UserCache {
 
 #[derive(Default, Debug, Serialize)]
 struct Assignment {
-    // id: String,
     name: String,
     date_due: String,    
     score: String,
     worth: u16,
     impact: String,
     category: String,
-
-
+    status: AssignmentStatus
 }
 #[derive(Debug, Serialize)]
 struct Course {
@@ -269,8 +280,6 @@ pub async fn login_jupiter(
     Ok(Arc::new((osis.to_string(), (cache, req_client))))
 }
 
-// TODO: make a global reqwest client, the "requestor" client.
-// TODO: function that accepts &mut UserCache and uses global requestor to fetch a page with usercache stuff, then scrape some elements.
 
 fn build_client(cookies: &Vec<String>) -> reqwest::Client {
     let cookie_jar = reqwest::cookie::Jar::default();
@@ -361,6 +370,7 @@ async fn parse_assignment_from_element(node: Node<'_>) -> Assignment {
     let td_nodes = node.find(Name("td"));
     // let td_nodesT = node.find(Name("td"));
     
+    // STATUS DEFAULTS TO UNGRADED. 
     let mut assignment = Assignment {
         ..Default::default()
     };
@@ -399,11 +409,20 @@ async fn parse_assignment_from_element(node: Node<'_>) -> Assignment {
                 if text.starts_with("<i>") {
                     let text = text.into_owned();
                     let doc = Document::from(text.as_str());
-
+                    
+                    // TODO! THIS DEFAULTS TO UNGRADED. SHOULDNT NEED TO HANDLE SEPARATELY.
+                    assignment.status = AssignmentStatus::MISSING;
                     doc.find(Class("red")).nth(0).unwrap().inner_html()
                 }
                 else {
-                    text.replace(' ', "")
+                    // this section should never have teh weird text scores: Eg "missing" or "zero" or "absent"
+                    let score = text.replace(' ', "");
+                    // JUMP
+                    if score.chars().next().unwrap().to_digit(10).is_some() {
+                        assignment.status = AssignmentStatus::GRADED;
+                    }
+
+                    score
                 }
 
             },
@@ -460,8 +479,6 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     for tr in term_section.parent().unwrap().children() {
 
         if tr.name().is_none() {
-            // println!("CONDITION FAILED");
-            // println!("name is {}", tr.name().unwrap());
             continue;
         }
         tr_elements.push(tr);
@@ -480,37 +497,49 @@ async fn get_course_data(cache: &UserCache, course_id: &String, course_name: &St
     let mut num_ungraded = 0;
     let mut num_total = 0;
 
-    // GET TOTAL ASSIGNMENTS
-    num_total = assignments.len() as u16;
+    for assignment in assignments.iter() {
+        num_total+=1;
 
-    // PARSE GRADED ASSINGMENTS
-    num_graded = assignments.iter().filter(|a| {
-        // if assingment starts with "/" like "/3", it is ungraded
-        // if it is like "3/3", its graded. HOLY shit.
-        // also if it starts with a number, bc it may be missing
-        let first_char = &a.score.chars().next().unwrap();
-        !a.score.starts_with('/') && first_char.to_digit(10).is_some()
-    }).count() as u16;
+        match assignment.status {
+            AssignmentStatus::GRADED => num_graded += 1,
+            AssignmentStatus::UNGRADED => num_ungraded += 1,
+            AssignmentStatus::MISSING => num_missing += 1,
+        }
 
-    num_ungraded = assignments.iter().filter(|a| {
-        // same concept
-        a.score.starts_with('/')
-    }).count() as u16;
+    }
 
-    // PARSE MISSING
-    let alert_rad12 = html.find(And(Class("alert"), Class("rad12"))).next();
+    // OLD PARSING, falback if something goes horrendously wrong.
+    // // GET TOTAL ASSIGNMENTS
+    // num_total = assignments.len() as u16;
+
+    // // PARSE GRADED ASSINGMENTS
+    // num_graded = assignments.iter().filter(|a| {
+    //     // if assingment starts with "/" like "/3", it is ungraded
+    //     // if it is like "3/3", its graded. HOLY shit.
+    //     // also if it starts with a number, bc it may be missing
+    //     let first_char = &a.score.chars().next().unwrap();
+    //     !a.score.starts_with('/') && first_char.to_digit(10).is_some()
+    // }).count() as u16;
+
+    // num_ungraded = assignments.iter().filter(|a| {
+    //     // same concept
+    //     a.score.starts_with('/')
+    // }).count() as u16;
+
+    // // PARSE MISSING
+    // let alert_rad12 = html.find(And(Class("alert"), Class("rad12"))).next();
 
     
-    if let Some(n) = alert_rad12 {
-        let red_node = n.find(Class("red")).next().unwrap();
-        let inner_str = red_node.text();
-        let num_str = &inner_str[0..inner_str.find(' ').unwrap()];
-        num_missing = if num_str == "One" {
-            1
-        } else {
-            u16::from_str_radix(num_str, 10).unwrap()
-        }
-    }
+    // if let Some(n) = alert_rad12 {
+    //     let red_node = n.find(Class("red")).next().unwrap();
+    //     let inner_str = red_node.text();
+    //     let num_str = &inner_str[0..inner_str.find(' ').unwrap()];
+    //     num_missing = if num_str == "One" {
+    //         1
+    //     } else {
+    //         u16::from_str_radix(num_str, 10).unwrap()
+    //     }
+    // }
 
     // Get teacher name, and then the location & time info.
     /* 
@@ -755,8 +784,25 @@ pub async fn get_all_data(osis: &String, password: &String) -> Result<JupiterDat
     let guard =  jd.lock().unwrap();
 
     info!("Finished fetching data for {} in {} seconds.", guard.name, log_timer.elapsed_seconds());
+    
+    // let mut total_assignments = 0;
+    // let mut total_graded = 0;
+    // let mut total_ungraded = 0;
+    // let mut total_missing = 0;
+    // for c in guard.courses.iter() {
+    //     total_assignments += c.assignments.iter().len();
+    //     total_graded += c.num_graded;
+    //     total_ungraded += c.num_ungraded;
+    //     total_missing += c.num_missing;
+    // }
+
+    // println!("total: {total_assignments}");
+    // println!("graded: {total_graded}");
+    // println!("ungraded: {total_ungraded}");
+    // println!("missing: {total_missing}");
 
     drop(guard);
+
 
     Ok(jd.into_inner().unwrap())
 }
