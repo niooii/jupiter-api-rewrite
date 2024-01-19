@@ -418,7 +418,7 @@ async fn parse_assignment_from_element(node: Node<'_>) -> Assignment {
                     // this section should never have teh weird text scores: Eg "missing" or "zero" or "absent"
                     let score = text.replace(' ', "");
                     // JUMP
-                    if score.chars().next().unwrap().to_digit(10).is_some() {
+                    if score.len() != 0 && score.chars().next().unwrap().to_digit(10).is_some() {
                         assignment.status = AssignmentStatus::GRADED;
                     }
 
