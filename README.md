@@ -9,9 +9,10 @@ A small program to fetch a user's information off the (arguably poorly written) 
 
 ## This repository is a rewrite of my original one: [jupitered-api](https://github.com/niooii/jupitered-api)
 ### Some improvements:
-- Not written in java
+- Not written in java.
+- Grabs a lot more info.
 - Uses session data instead of the webdriver the whole time.
-- Response time from *8.4s* -> *1.8s*, *<200ms* if the session is still alive. 
+- Response time from *8.4s* -> *1.8s*, *<200ms* if the session is still alive (abusing async)
 
 # How it works
 ### First steps:
