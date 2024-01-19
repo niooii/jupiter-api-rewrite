@@ -20,7 +20,27 @@ No matter how much I tried, I couldn't find a way to login via a web request. Th
 ### Grabbing courses, assignments, other data:
 Jupiter has endpoints that are reusable with session information as query parameters. One such endpoint recieves a course ID grabbed from the previous webdriver session, and cached for the user. This step is performed right after the initial login, so the session info should never be expired.
 
-### How information is processed
+**Your password is NOT stored.** Here's what is stored though:
+```rs
+// the query parameters for most of jupiters endpoints, grabbed from the webdriver session
+pub struct UserCache {
+    mini: String,
+    session: String,
+    server: String,
+    district: String,
+    school: String,
+    year: String,
+    stud: String,
+    contact: String,
+    datemenu: String,
+    gterm: String,
+
+    class_ids_names: Vec<(String, String)>,
+    raw_cookies: Vec<String>,
+}
+```
+
+### How information is processed && sent back
 This program gives three statuses to assignments:
 ```rs
 pub enum AssignmentStatus {
@@ -37,4 +57,47 @@ Assignments are `Graded` if:
 - The score does NOT start with "/", as ungraded assignments are usually formatted as "/3" or "/100".
 
 Assignments are `Missing` if:
-- THe score string was found wrapped inside the <class="red"> element. 
+- The score string was found wrapped inside the <class="red"> element. 
+
+All the information that's sent back:
+```rs
+#[derive(Default, Debug, Serialize)]
+struct Assignment {
+    name: String,
+    date_due: String,    
+    score: String,
+    worth: u16,
+    impact: String,
+    category: String,
+    status: AssignmentStatus
+}
+#[derive(Debug, Serialize)]
+struct Course {
+    name: String,
+    teacher_name: String,
+    place_and_time: String,
+    num_missing: u16,
+    num_graded: u16,
+    num_ungraded: u16,
+    num_total: u16,
+    grades: Vec<GradeData>,
+    assignments: Vec<Assignment>,
+}
+
+#[derive(Default, Debug, Serialize)]
+struct GradeData {
+    category: String,
+    percent_grade: Option<f32>,
+    fraction_grade: Option<String>,
+    additional_info: Option<String>,
+}
+
+#[derive(Default, Debug, Serialize)]
+// data is sent back in this form.
+pub struct JupiterData {
+    name: 
+    String,
+    osis: String,
+    courses: Vec<Course>,
+}
+```
