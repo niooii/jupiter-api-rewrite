@@ -29,7 +29,7 @@ pub enum AssignmentStatus {
   Ungraded
 }
 ```
-Assignments default to Ungraded. 
+Assignments default to `Ungraded`. 
 
 Assignments are `Graded` if: 
 - The assignment is not missing.
