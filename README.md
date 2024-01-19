@@ -19,7 +19,26 @@ A small program to fetch a user's information off the (arguably poorly written) 
 No matter how much I tried, I couldn't find a way to login via a web request. The scraper uses the [fantoccini](https://github.com/jonhoo/fantoccini) library to interact with a webdriver on port 4444. Upon logging in via inputting the osis && pwd into the respective fields, session data && cookies are stored and the webdriver session is closed.
 
 ### Grabbing courses, assignments, other data:
-Jupiter has endpoints that are reusable with session information as query parameters. One such endpoint recieves a course ID grabbed from the previous webdriver session, and cached for the user. This step is performed right after the initial login, so the session info should never be expired.
+Jupiter has endpoints that are reusable with session information as query parameters. One such endpoint recieves a CourseID Cached from the previous webdriver session, returning HTML of the user's course page. This step is performed right after the initial login, so the session info should never be expired.
+
+Course endpoint:
+```rs
+// unfortunately, most of these fields are necessary.
+fn course_endpoint(cache: &UserCache, course_id: &String) -> String {
+    format!("https://login.jupitered.com/0/student.php?w={},{},0&from=todo&to=grades&todo=&mini=0&session={}&server=1&district={}&school={}&year={}&stud={}&contact={}&class1={}&gterm={}&ass=&pagecomplete=1&busymsg=Loading"
+    , cache.school,
+    cache.stud, 
+    cache.session,//session
+    cache.school, //district
+    cache.school, //school
+    cache.year,
+    cache.stud,
+    cache.contact,
+    course_id,
+    cache.gterm,
+    )
+}
+```
 
 **Your password is NOT stored.** Here's what is stored though:
 ```rs
