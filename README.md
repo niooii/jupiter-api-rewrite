@@ -11,4 +11,4 @@ A small program to fetch a user's information off the (arguably poorly written) 
 ### Some improvements:
 - Not written in java
 - Uses session data instead of the webdriver the whole time.
-- Response time from *8.4s* -> *1.8s*, faster if the session is still alive. 
+- Response time from *8.4s* -> *1.8s*, *<200ms* if the session is still alive. 
